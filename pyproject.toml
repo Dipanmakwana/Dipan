@@ -1,10 +1,19 @@
 [project]
-name = "CampusCare"
+name = "campuscare"
 version = "0.1.0"
-description = "CampusCare app"
 requires-python = ">=3.10"
-dependencies = ["flet"]
+dependencies = [
+    "flet",
+    "flet-geolocator",
+    "flet-camera",
+    "httpx",
+]
 
 [tool.flet]
 product = "CampusCare"
 org = "com.example"
+
+[tool.flet.android.permission]
+"android.permission.ACCESS_FINE_LOCATION" = true
+"android.permission.ACCESS_COARSE_LOCATION" = true
+"android.permission.CAMERA" = true
