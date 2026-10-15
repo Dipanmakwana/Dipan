@@ -13,7 +13,11 @@ dependencies = [
 product = "CampusCare"
 org = "com.example"
 
+[tool.flet.app]
+path = "src"
+
 [tool.flet.android.permission]
+"android.permission.INTERNET" = true
 "android.permission.ACCESS_FINE_LOCATION" = true
 "android.permission.ACCESS_COARSE_LOCATION" = true
 "android.permission.CAMERA" = true
