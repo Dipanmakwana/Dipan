@@ -123,20 +123,31 @@ def _result_error(result: dict) -> tuple[str, str] | None:
     return None
 
 
-def _campuscare_logo(width: int = 150, height: int = 150) -> ft.Image:
-    """Display the supplied logo from the Flet assets directory."""
-    return ft.Image(src="campuscare_logo.png", width=width, height=height)
+def _logo_mark(size: int = 48) -> ft.Control:
+    """Show the shared CampusCare logo asset used by login.py."""
+    return ft.Image(
+        src="campuscare_logo.png",
+        width=size,
+        height=size,
+        fit="contain",
+    )
 
 
 def _brand_lockup(*, light: bool = False) -> ft.Control:
-    return ft.Column(
+    return ft.Row(
         [
-            _campuscare_logo(150, 150),
-            ft.Text("Your campus, cared for.", size=11, color="#E3DEFF" if light else MUTED),
+            _logo_mark(43 if light else 48),
+            ft.Column(
+                [
+                    ft.Text("CampusCare", size=20, weight=ft.FontWeight.BOLD, color=WHITE if light else TEXT),
+                    ft.Text("Your campus, cared for.", size=11, color="#E3DEFF" if light else MUTED),
+                ],
+                spacing=0,
+                tight=True,
+            ),
         ],
-        spacing=0,
-        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        tight=True,
+        spacing=12,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
 
 
@@ -160,117 +171,100 @@ def _field_style(width: int, *, label: str, hint: str, icon, password: bool = Fa
         content_padding=15,
     )
 
+
 def _brand_panel() -> ft.Control:
+    def feature(icon, title, description):
+        return ft.Row(
+            [
+                ft.Container(
+                    width=42,
+                    height=42,
+                    border_radius=13,
+                    bgcolor="#8976FA",
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.Icon(icon, color=WHITE, size=21),
+                ),
+                ft.Column(
+                    [
+                        ft.Text(title, size=13, color=WHITE, weight=ft.FontWeight.BOLD),
+                        ft.Text(description, size=11, color="#E3DEFF"),
+                    ],
+                    spacing=3,
+                    tight=True,
+                    expand=True,
+                ),
+            ],
+            spacing=12,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
     return ft.Container(
-        width=380,
-        padding=28,
+        width=420,
+        height=660,
+        padding=30,
         border_radius=28,
         bgcolor=PURPLE_DARK,
         content=ft.Column(
             [
-                # Logo and branding side by side
-                ft.Row(
-                    [
-                        _campuscare_logo(100, 100),
-                        ft.Column(
-                            [
-                                ft.Text(
-                                    "CampusCare",
-                                    size=23,
-                                    weight=ft.FontWeight.BOLD,
-                                    color=WHITE,
-                                ),
-                                ft.Text(
-                                    "Student Community",
-                                    size=12,
-                                    color="#E3DEFF",
-                                ),
-                                ft.Text(
-                                    "For Students & Staff",
-                                    size=11,
-                                    color="#C6BDFF",
-                                ),
-                            ],
-                            spacing=5,
-                            alignment=ft.MainAxisAlignment.CENTER,
-                            expand=True,
-                        ),
-                    ],
-                    spacing=8,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                _brand_lockup(light=True),
+                ft.Container(height=23),
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=7),
+                    border_radius=30,
+                    bgcolor="#51418F",
+                    content=ft.Row(
+                        [
+                            ft.Container(width=7, height=7, bgcolor="#BDB0FF", border_radius=99),
+                            ft.Text("STUDENT COMMUNITY", size=10, color="#F1EEFF", weight=ft.FontWeight.BOLD),
+                        ],
+                        spacing=8,
+                        tight=True,
+                    ),
                 ),
-                ft.Divider(color="#51418F", height=24),
+                ft.Text("Make campus\ncare part of life.", size=32, weight=ft.FontWeight.BOLD, color=WHITE),
                 ft.Text(
-                    "Your voice matters.",
-                    size=27,
-                    weight=ft.FontWeight.BOLD,
-                    color=WHITE,
-                ),
-                ft.Text(
-                    "Report campus concerns, follow progress, "
-                    "and connect with support.",
+                    "Create your student account to report concerns, follow progress, and connect with campus support.",
                     size=13,
                     color="#E3DEFF",
                 ),
-                ft.Container(height=12),
-                ft.Row(
-                    [
-                        ft.Icon(
-                            ft.Icons.FORUM_OUTLINED,
-                            color="#C6BDFF",
-                            size=22,
-                        ),
-                        ft.Text(
-                            "Speak up with confidence",
-                            size=13,
-                            color=WHITE,
-                        ),
-                    ],
-                    spacing=12,
+                ft.Container(height=8),
+                ft.Container(
+                    padding=17,
+                    border_radius=19,
+                    bgcolor="#493987",
+                    content=ft.Column(
+                        [
+                            feature(ft.Icons.FORUM_OUTLINED, "Your voice matters", "Share a concern when you need to."),
+                            ft.Container(height=15),
+                            feature(ft.Icons.TRACK_CHANGES_ROUNDED, "Know what happens next", "Keep track as issues move forward."),
+                            ft.Container(height=15),
+                            feature(ft.Icons.SHIELD_OUTLINED, "Institute-only access", "Verify your institute email."),
+                        ],
+                        spacing=0,
+                    ),
                 ),
+                ft.Container(expand=True),
                 ft.Row(
                     [
-                        ft.Icon(
-                            ft.Icons.TRACK_CHANGES_ROUNDED,
-                            color="#C6BDFF",
-                            size=22,
-                        ),
-                        ft.Text(
-                            "Track your concerns",
-                            size=13,
-                            color=WHITE,
-                        ),
+                        ft.Icon(ft.Icons.FAVORITE_BORDER_ROUNDED, size=16, color="#C6BDFF"),
+                        ft.Text("A safer, more caring campus starts here.", size=10, color="#E3DEFF"),
                     ],
-                    spacing=12,
-                ),
-                ft.Row(
-                    [
-                        ft.Icon(
-                            ft.Icons.SHIELD_OUTLINED,
-                            color="#C6BDFF",
-                            size=22,
-                        ),
-                        ft.Text(
-                            "Verified institute access",
-                            size=13,
-                            color=WHITE,
-                        ),
-                    ],
-                    spacing=12,
+                    spacing=8,
                 ),
             ],
-            spacing=12,
-            tight=True,
-            scroll=ft.ScrollMode.AUTO,
+            spacing=13,
+            expand=True,
         ),
     )
+
 
 def view(page: ft.Page, step: str = "form", email: str = "", **params) -> ft.Control:
     """Render registration step (``form``) or email verification step (``otp``)."""
     viewport_width = getattr(page, "width", None)
-    compact = viewport_width is None or viewport_width < 960
-    card_width = max(280, min(460, int(viewport_width or 390) - 36)) if compact else 460
-    inner_width = max(240, card_width - 60)
+    compact = True  # Mobile-first layout at every viewport width.
+    card_width = max(240, min(460, int(viewport_width or 390) - 24))
+    card_padding = 16 if (viewport_width or 390) < 480 else 28
+    inner_width = max(200, card_width - (card_padding * 2))
     state = {"loading": False, "resend_seconds": 0, "cooldown_task": None}
     show_otp = str(step).lower() == "otp"
     email = (email or "").strip()
@@ -712,8 +706,7 @@ def view(page: ft.Page, step: str = "form", email: str = "", **params) -> ft.Con
 
     signup_card = ft.Container(
         width=card_width,
-        height=None if compact else (510 if show_otp else 700),
-        padding=28 if compact else 30,
+        padding=card_padding,
         border_radius=26,
         bgcolor=WHITE,
         border=ft.Border.all(width=1, color=BORDER),
@@ -726,57 +719,74 @@ def view(page: ft.Page, step: str = "form", email: str = "", **params) -> ft.Con
         content=card_body,
     )
 
-    if compact:
-        top_brand = ft.Row(
-            [
-                _campuscare_logo(85, 85),
-                ft.Column(
-                    [
-                        ft.Text(
-                            "CampusCare",
-                            size=20,
-                            weight=ft.FontWeight.BOLD,
-                            color=PURPLE_DARK,
-                        ),
-                        ft.Text(
-                            "Student Community",
-                            size=11,
-                            color=MUTED,
-                        ),
-                        ft.Text(
-                            "For Students & Staff",
-                            size=10,
-                            color=MUTED,
-                        ),
-                    ],
-                    spacing=3,
-                    alignment=ft.MainAxisAlignment.CENTER,
-                ),
-            ],
-            alignment=ft.MainAxisAlignment.CENTER,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=8,
-        )
-        body = ft.Column(
-            [top_brand, signup_card],
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=18,
-            scroll=ft.ScrollMode.AUTO,
-            expand=True,
-        )
-    else:
-        body = ft.Row(
-            [_brand_panel(), signup_card],
-            alignment=ft.MainAxisAlignment.CENTER,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=25,
-            expand=True,
-        )
+    top_brand = ft.Row(
+        [
+            _logo_mark(40),
+            ft.Column(
+                [
+                    ft.Text("CampusCare", size=21, color=TEXT, weight=ft.FontWeight.BOLD),
+                    ft.Text("For Students & Staff", size=12, color=MUTED),
+                ],
+                spacing=2,
+                alignment=ft.MainAxisAlignment.CENTER,
+            ),
+        ],
+        alignment=ft.MainAxisAlignment.CENTER,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        spacing=10,
+    )
+    body = ft.Column(
+        [top_brand, signup_card],
+        alignment=ft.MainAxisAlignment.START,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        spacing=14,
+        scroll=ft.ScrollMode.AUTO,
+        expand=True,
+    )
+
+    # Resize the card and its children when the viewport changes.
+    resize_state = {"field_width": inner_width}
+
+    def on_resize(e):
+        width = int(getattr(page, "width", None) or 390)
+        card_w = max(240, min(460, width - 24))
+        pad = 16 if width < 480 else 28
+        field_w = max(200, card_w - (pad * 2))
+        previous_field_width = resize_state["field_width"]
+        signup_card.width = card_w
+        signup_card.padding = pad
+
+        def resize_children(control):
+            if control is None:
+                return
+            if isinstance(control, (list, tuple)):
+                for child in control:
+                    resize_children(child)
+                return
+            if hasattr(control, "width"):
+                try:
+                    current = getattr(control, "width", None)
+                    if current == previous_field_width:
+                        control.width = field_w
+                except Exception:
+                    pass
+            for attr in ("content", "controls", "leading", "trailing"):
+                try:
+                    child = getattr(control, attr, None)
+                except Exception:
+                    child = None
+                if child is not None and child is not control:
+                    resize_children(child)
+
+        resize_children(signup_card.content)
+        resize_state["field_width"] = field_w
+        page.update()
+
+    page.on_resize = on_resize
 
     return ft.Container(
         expand=True,
-        padding=16,
+        padding=12,
         bgcolor=PAGE_BG,
         content=body,
     )
