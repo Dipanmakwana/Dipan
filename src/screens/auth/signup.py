@@ -28,7 +28,7 @@ Behaviour TODO
 import asyncio
 import inspect
 import re
-
+import httpx
 import flet as ft
 
 import config
@@ -68,40 +68,42 @@ def _email_error(value: str, *, required: bool = False) -> str | None:
     return None
 
 
+
 def _error_message(exc: Exception) -> tuple[str, str]:
-    """Map common API failures to clear, non-technical form messages."""
     response = getattr(exc, "response", None)
-    bits = [str(exc)]
+    status = getattr(response, "status_code", None)
+    detail = str(exc)
+
     if response is not None:
-        bits.append(str(getattr(response, "text", "")))
         try:
             body = response.json()
             if isinstance(body, dict):
-                bits.extend(str(body.get(key, "")) for key in ("detail", "message", "error", "code"))
-        except Exception:
-            pass
-    detail = " ".join(item for item in bits if item).lower()
-    status = getattr(exc, "status_code", None)
-    if status is None and response is not None:
-        status = getattr(response, "status_code", None)
+                raw_detail = body.get("detail", body.get("message", body.get("error")))
+                if isinstance(raw_detail, list):
+                    detail = "; ".join(
+                        str(item.get("msg", item)) if isinstance(item, dict) else str(item)
+                        for item in raw_detail
+                    )
+                elif raw_detail:
+                    detail = str(raw_detail)
+        except (ValueError, TypeError):
+            detail = response.text or detail
 
-    if any(word in detail for word in ("already exists", "already registered", "email already")):
+    lowered = detail.lower()
+
+    if status == 409 or any(value in lowered for value in ("already registered", "already exists", "email already")):
         return "conflict", "An account with this institute email already exists. Try logging in instead."
-    if any(word in detail for word in ("invalid code", "incorrect code", "expired code", "otp", "verification code")):
-        return "otp", "That verification code is invalid or expired. Check the code and try again."
-    if status == 429 or any(word in detail for word in ("too many", "rate limit", "attempt limit")):
-        return "limit", "Too many attempts. Please wait a little before trying again."
 
-    name = type(exc).__name__.lower()
-    module = type(exc).__module__.lower()
-    if isinstance(exc, (ConnectionError, TimeoutError, OSError)) or any(
-        word in name for word in ("timeout", "connecterror", "networkerror", "requesterror")
-    ) or ("httpx" in module and any(word in name for word in ("timeout", "connect", "network"))):
+    if status == 429 or any(value in lowered for value in ("too many", "rate limit")):
+        return "limit", "Too many attempts. Please wait before trying again."
+
+    if status in (400, 422):
+        return "validation", detail
+
+    if isinstance(exc, (httpx.TimeoutException, httpx.ConnectError)):
         return "network", "We couldn't reach CampusCare. Check your connection and try again."
 
-    if status == 400 or status == 409:
-        return "validation", "Please check your details. The server couldn't accept this registration."
-    return "generic", "Something went wrong. Please try again."
+    return "generic", detail or "Something went wrong. Please try again."
 
 
 def _result_error(result: dict) -> tuple[str, str] | None:
@@ -353,8 +355,11 @@ def view(page: ft.Page, step: str = "form", email: str = "", **params) -> ft.Con
         )
 
         async def on_signup(e) -> None:
+            print("Signup button clicked")
             if state["loading"]:
+                print("Signup is already in progress; ignoring click.")
                 return
+            print("Validating form fields...")
             full_name = (name_field.value or "").strip()
             institute_email = (email_field.value or "").strip()
             password = password_field.value or ""
@@ -370,6 +375,16 @@ def view(page: ft.Page, step: str = "form", email: str = "", **params) -> ft.Con
             )
             clear_message()
             if name_field.error_text or email_field.error_text or password_field.error_text or confirm_field.error_text:
+                print("Form validation failed.")
+                if name_field.error_text:
+                    display_message(name_field.error_text)
+                elif email_field.error_text:
+                    display_message(email_field.error_text)
+                elif password_field.error_text:
+                    display_message(password_field.error_text)
+                elif confirm_field.error_text:
+                    display_message(confirm_field.error_text
+                    )
                 page.update()
                 return
 
@@ -402,10 +417,20 @@ def view(page: ft.Page, step: str = "form", email: str = "", **params) -> ft.Con
                         return
                     # A signup response without an explicit error means the
                     # service accepted the request and sent an OTP.
-                    go(page, "/signup", step="otp", email=institute_email)
+                    go(
+                        page,
+                        "/login",
+                        email=institute_email,
+                        notice="Check your inbox and click the verification link before logging in.",
+                    )
                     return
                 if result is True or result is None:
-                    go(page, "/signup", step="otp", email=institute_email)
+                    go(
+                        page,
+                        "/login",
+                        email=institute_email,
+                        notice="Check your inbox and click the verification link before logging in.",
+                    )
                 else:
                     display_message("We couldn't confirm that your account was created. Please try again.")
             except Exception as exc:

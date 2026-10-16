@@ -49,42 +49,51 @@ def _email_error(value: str, *, required: bool = False) -> str | None:
   if domain and email.lower().split("@", 1)[1] != domain:
       return f"Use your @{domain} institute email."
   return None
+
+
 def _exception_details(exc: Exception) -> tuple[str, str]:
-  """Return (kind, user-facing message) for common authentication failures."""
-  detail_parts = [str(exc)]
-  response = getattr(exc, "response", None)
-  if response is not None:
-      detail_parts.append(str(getattr(response, "text", "")))
-      try:
-          body = response.json()
-          if isinstance(body, dict):
-              detail_parts.extend(
-                  str(body.get(key, ""))
-                  for key in ("detail", "message", "error", "code")
-              )
-      except Exception:
-          pass
-  detail = " ".join(part for part in detail_parts if part).lower()
-  status = getattr(exc, "status_code", None)
-  if status is None and response is not None:
-      status = getattr(response, "status_code", None)
-  if status is None:
-      status = getattr(exc, "status", None)
-  if any(token in detail for token in ("unverified", "not verified", "verify your email", "email verification required")):
-      return "unverified", "Your institute email is not verified yet. Verify it to continue."
-  if status == 401 or any(
-      token in detail
-      for token in ("invalid credentials", "incorrect password", "wrong password", "invalid password", "invalid email or password")
-  ):
-      return "credentials", "That email and password combination doesn't look right. Try again."
-  exception_name = type(exc).__name__.lower()
-  module_name = type(exc).__module__.lower()
-  network_exception = isinstance(exc, (ConnectionError, TimeoutError, OSError)) or any(
-      token in exception_name for token in ("timeout", "connecterror", "networkerror", "requesterror")
-  ) or ("httpx" in module_name and any(token in exception_name for token in ("timeout", "connect", "network")))
-  if network_exception:
-      return "network", "We couldn't reach CampusCare. Check your connection and try again."
-  return "generic", "We couldn't sign you in right now. Please try again."
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    detail = str(exc)
+
+    if response is not None:
+        try:
+            body = response.json()
+            if isinstance(body, dict):
+                raw_detail = body.get("detail", body.get("message", body.get("error")))
+                if raw_detail:
+                    detail = str(raw_detail)
+        except (ValueError, TypeError):
+            detail = response.text or detail
+
+    lowered = detail.lower()
+
+    if any(value in lowered for value in ("unverified", "not verified", "email verification required")):
+        return "unverified", "Verify your institute email before signing in."
+
+    if any(
+        value in lowered
+        for value in ("email not confirmed", "email not verified", "not verified")
+    ):
+        return "unverified", "Your email is not verified. Please verify your email using the link sent to your inbox."
+
+    if status == 401:
+        return "credentials", "Invalid email or password. Your account may not exist."
+
+    if status == 401:
+        return "credentials", "That email and password combination doesn't look right."
+
+    if status in (400, 422):
+        return "validation", detail
+
+    name = type(exc).__name__.lower()
+
+    if any(value in name for value in ("timeout", "connecterror", "networkerror")):
+        return "network", "We couldn't reach CampusCare. Check your connection and try again."
+
+    return "generic", detail or "We couldn't sign you in right now. Please try again."
+
+
 def view(page: ft.Page, **params) -> ft.Control:
   """Render the shared student/staff login screen for route ``/login``."""
   viewport_width = getattr(page, "width", None)
@@ -109,6 +118,7 @@ def view(page: ft.Page, **params) -> ft.Control:
       border_radius=13,
       content_padding=16,
       on_change=None,  # assigned below after the error area is created
+      value=params.get("email", ""),
   )
   password_field = ft.TextField(
       label="Password",
@@ -151,16 +161,36 @@ def view(page: ft.Page, **params) -> ft.Control:
   def clear_error() -> None:
       error_area.visible = False
       error_area.content = None
+  def show_notice(message: str) -> None:
+    error_area.bgcolor = SUCCESS_BG
+    error_area.content = ft.Row(
+        [
+            ft.Icon(
+                ft.Icons.MARK_EMAIL_READ_OUTLINED,
+                color=PURPLE_DARK,
+                size=19,
+            ),
+            ft.Text(
+                message,
+                color=PURPLE_DARK,
+                size=12,
+                expand=True,
+            ),
+        ],
+        spacing=9,
+        vertical_alignment=ft.CrossAxisAlignment.START,
+    )
+    error_area.visible = True
   def on_email_change(e) -> None:
       value = email_field.value or ""
       # Avoid showing an error before the user has typed enough to form an address.
-      email_field.error_text = _email_error(value) if "@" in value and "." in value.rsplit("@", 1)[-1] else None
+    #   email_field.error_text = _email_error(value) if "@" in value and "." in value.rsplit("@", 1)[-1] else None
       if error_area.visible:
           clear_error()
       page.update()
   def on_password_change(e) -> None:
-      if password_field.error_text and password_field.value:
-          password_field.error_text = None
+    #   if password_field.error_text and password_field.value:
+    #       password_field.error_text = None
       if error_area.visible:
           clear_error()
       page.update()
@@ -214,10 +244,13 @@ def view(page: ft.Page, **params) -> ft.Control:
           return
       email = (email_field.value or "").strip()
       password = password_field.value or ""
-      email_field.error_text = _email_error(email, required=True)
-      password_field.error_text = "Enter your password." if not password else None
+      email_err = _email_error(email, required=True)
+      if email_err:
+            email_err = email_err.msg if hasattr(email_err, "msg") else email_err
+      password_err = "Enter your password." if not password else None
       clear_error()
-      if email_field.error_text or password_field.error_text:
+      if email_err or password_err:
+          show_error(email_err or password_err, kind="validation")
           page.update()
           return
       state["loading"] = True
@@ -231,10 +264,14 @@ def view(page: ft.Page, **params) -> ft.Control:
                   "Sign-in is not connected to the server yet. The login UI is ready, but the auth service still needs to be implemented.",
                   kind="generic",
               )
+              print("auth_service.login is not callable. Check that the auth_service module is implemented correctly.")
               return
+          print("Calling auth_service.login with email:", email)
           result = login_fn(email, password)
+          print("auth_service.login returned:", result)
           if inspect.isawaitable(result):
               result = await result
+          print("Login result:", result)
           if not isinstance(result, dict):
               show_error("The server returned an unexpected response. Please try again.")
               return
@@ -246,8 +283,8 @@ def view(page: ft.Page, **params) -> ft.Control:
               token in response_message for token in ("unverified", "not verified", "verify your email", "email verification required")
           )
           if is_unverified:
-              go(page, "/signup", step="otp", email=email)
-              return
+            show_error("Your email is not verified. Please verify your email using the link sent to your inbox.")
+            return
           if result.get("success") is False or result.get("error"):
               status = result.get("status_code", result.get("status"))
               if status == 401 or any(token in response_message for token in ("invalid credentials", "incorrect password", "wrong password")):
@@ -268,18 +305,17 @@ def view(page: ft.Page, **params) -> ft.Control:
           # substituted here when the staff routes are registered.
           reset(page, home_path())
       except Exception as exc:
-          kind, message = _exception_details(exc)
-          if kind == "unverified":
-              go(page, "/signup", step="otp", email=email)
-          else:
-              show_error(message, kind=kind)
+        kind, message = _exception_details(exc)
+        show_error(message, kind=kind)
       finally:
-          state["loading"] = False
-          login_button.disabled = False
-          login_button.content = make_login_button_content(False)
-          page.update()
+        state["loading"] = False
+        login_button.disabled = False
+        login_button.content = make_login_button_content(False)
+        page.update()
   login_button.on_click = on_login
   password_field.on_submit = on_login
+  if params.get("notice"):
+    show_notice(str(params["notice"]))
   # Use the supplied CampusCare logo asset instead of the old heart icon
   # and text-only wordmark. Keep the source relative to Flet's assets_dir.
   def campuscare_logo(width: int = 150, height: int = 150) -> ft.Image:
@@ -452,18 +488,6 @@ def view(page: ft.Page, **params) -> ft.Control:
                   ],
                   alignment=ft.MainAxisAlignment.CENTER,
                   spacing=6,
-              ),
-              *(
-                  [
-                      ft.Container(height=2),
-                      ft.TextButton(
-                          "DEV MODE · Continue as demo student",
-                          on_click=dev_skip,
-                          style=ft.ButtonStyle(color=PURPLE_DARK),
-                      ),
-                  ]
-                  if getattr(config, "DEV_MODE", False)
-                  else []
               ),
           ],
           spacing=15,

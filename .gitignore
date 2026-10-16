@@ -8,3 +8,7 @@ CampusCare_Project_Plan.md
 .python-version
 .flet
 build/
+.env
+backend/.env
+
+*__pycache__*
