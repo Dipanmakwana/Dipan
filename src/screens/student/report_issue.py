@@ -55,6 +55,8 @@ import uuid
 from pathlib import Path
 
 import flet as ft
+from flet_camera import Camera, ResolutionPreset
+from flet_geolocator import Geolocator
 
 from core.router import go
 
@@ -396,14 +398,13 @@ def view(page: ft.Page, **params) -> ft.Control:
     )
 
     # ---------------------------------------------------------
-    # Photos
+    # Photos: camera capture + gallery picker
     # ---------------------------------------------------------
 
-    photo_strip = ft.Row(
-        controls=[],
-        spacing=10,
-        wrap=True,
-    )
+    selected_photos = []
+    camera_control = None
+
+    photo_strip = ft.Row(controls=[], spacing=10, wrap=True)
 
     camera_status = ft.Text(
         "No photos selected. You can attach up to 3 photos.",
@@ -412,42 +413,26 @@ def view(page: ft.Page, **params) -> ft.Control:
     )
 
     file_picker = ft.FilePicker()
+    camera_preview_container = ft.Container(visible=False)
 
     def update_photo_ui():
         photo_strip.controls.clear()
 
         for index, photo in enumerate(selected_photos):
-            photo_path = photo["path"]
-
-            image_control = (
-                ft.Image(
-                    src_base64=base64.b64encode(photo["bytes"]).decode("ascii"),
-                    width=96,
-                    height=82,
-                    fit=ft.ImageFit.COVER,
-                    border_radius=8,
-                )
-                if photo.get("bytes")
-                else ft.Image(
-                    src=photo_path,
-                    width=96,
-                    height=82,
-                    fit=ft.ImageFit.COVER,
-                    border_radius=8,
-                )
-            )
-
             photo_card = ft.Container(
                 width=112,
                 padding=6,
-                border=ft.Border.all(
-                    1,
-                    ft.Colors.GREY_300,
-                ),
+                border=ft.Border.all(1, ft.Colors.GREY_300),
                 border_radius=10,
                 content=ft.Column(
                     [
-                        image_control,
+                        ft.Image(
+                            src_base64=base64.b64encode(photo["bytes"]).decode("ascii"),
+                            width=96,
+                            height=82,
+                            fit=ft.ImageFit.COVER,
+                            border_radius=8,
+                        ),
                         ft.Text(
                             photo.get("name", "Photo"),
                             size=10,
@@ -462,12 +447,6 @@ def view(page: ft.Page, **params) -> ft.Control:
                                     tooltip="Remove photo",
                                     on_click=lambda e, i=index: remove_photo(i),
                                 ),
-                                ft.IconButton(
-                                    icon=ft.Icons.REFRESH,
-                                    icon_size=17,
-                                    tooltip="Retake or replace photo",
-                                    on_click=lambda e: choose_photos(),
-                                ),
                             ],
                             alignment=ft.MainAxisAlignment.CENTER,
                             spacing=0,
@@ -477,7 +456,6 @@ def view(page: ft.Page, **params) -> ft.Control:
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
             )
-
             photo_strip.controls.append(photo_card)
 
         camera_status.value = (
@@ -485,7 +463,6 @@ def view(page: ft.Page, **params) -> ft.Control:
             if selected_photos
             else "No photos selected. You can attach up to 3 photos."
         )
-
         page.update()
 
     def remove_photo(index):
@@ -493,6 +470,140 @@ def view(page: ft.Page, **params) -> ft.Control:
             selected_photos.pop(index)
             update_photo_ui()
             validate_form()
+
+    def _add_photo_bytes(photo_bytes, name):
+        """Add in-memory image bytes, enforcing count and size limits."""
+        if len(selected_photos) >= MAX_PHOTOS:
+            show_error("You can attach a maximum of 3 photos.")
+            page.update()
+            return False
+        if not photo_bytes:
+            show_error("The camera did not return an image. Please try again.")
+            page.update()
+            return False
+        if len(photo_bytes) > MAX_PHOTO_BYTES:
+            show_error(
+                f"{name} is larger than 1.5 MB. Please use a lower camera resolution "
+                "or choose a smaller image."
+            )
+            page.update()
+            return False
+
+        selected_photos.append({
+            "path": None,
+            "bytes": bytes(photo_bytes),
+            "name": name,
+            "size": len(photo_bytes),
+        })
+        clear_error()
+        update_photo_ui()
+        validate_form()
+        return True
+
+    async def close_camera(e=None):
+        nonlocal camera_control
+        camera_preview_container.visible = False
+        camera_preview_container.content = None
+        camera_control = None
+        page.update()
+
+    async def capture_camera_photo(e=None):
+        if camera_control is None:
+            show_error("Camera is not ready. Please open it again.")
+            page.update()
+            return
+        if len(selected_photos) >= MAX_PHOTOS:
+            show_error("You can attach a maximum of 3 photos.")
+            page.update()
+            return
+
+        try:
+            camera_status.value = "Capturing photo..."
+            page.update()
+            image_bytes = await _resolve(camera_control.take_picture())
+            if _add_photo_bytes(image_bytes, f"campuscare_{uuid.uuid4().hex[:8]}.jpg"):
+                await close_camera()
+        except Exception as exc:
+            logger.exception("Camera capture failed")
+            camera_status.value = "Could not capture photo. Please try again."
+            show_error(
+                "Unable to capture a photo. Check camera permission and try again. "
+                f"Details: {exc}"
+            )
+            page.update()
+
+    async def open_camera(e=None):
+        nonlocal camera_control
+        if len(selected_photos) >= MAX_PHOTOS:
+            show_error("You can attach a maximum of 3 photos.")
+            page.update()
+            return
+
+        clear_error()
+        camera_status.value = "Opening camera..."
+        page.update()
+
+        try:
+            if camera_control is None:
+                camera_control = Camera(preview_enabled=True)
+                camera_preview_container.content = ft.Column(
+                    [
+                        camera_control,
+                        ft.Row(
+                            [
+                                ft.Button(
+                                    "Capture photo",
+                                    icon=ft.Icons.CAMERA_ALT,
+                                    on_click=capture_camera_photo,
+                                    bgcolor=ft.Colors.DEEP_PURPLE_600,
+                                    color=ft.Colors.WHITE,
+                                    expand=True,
+                                ),
+                                ft.Button(
+                                    "Cancel",
+                                    on_click=close_camera,
+                                    bgcolor=ft.Colors.GREY_200,
+                                    color=ft.Colors.GREY_900,
+                                ),
+                            ],
+                            spacing=8,
+                        ),
+                    ],
+                    spacing=10,
+                )
+            camera_preview_container.visible = True
+            page.update()
+
+            cameras = await _resolve(camera_control.get_available_cameras())
+            if not cameras:
+                raise RuntimeError(
+                    "No camera was found. Check that this device has a camera and "
+                    "that camera permission is enabled."
+                )
+
+            # Medium resolution keeps captures suitable for campus Wi-Fi uploads.
+            await _resolve(
+                camera_control.initialize(
+                    cameras[0],
+                    ResolutionPreset.medium,
+                    enable_audio=False,
+                )
+            )
+            camera_status.value = "Camera ready. Capture a photo or cancel."
+            page.update()
+
+        except Exception as exc:
+            logger.exception("Could not initialize camera")
+            camera_preview_container.visible = False
+            camera_preview_container.content = None
+            camera_control = None
+            camera_status.value = "Camera unavailable. You can choose an existing photo instead."
+            show_error(
+                "Unable to open the camera. If you're using the APK, allow camera access "
+                "in Android Settings and try again. "
+                f"Details: {exc}"
+            )
+            page.update()
 
     async def handle_file_picker_result(e):
         files = getattr(e, "files", None) or []
@@ -509,7 +620,6 @@ def view(page: ft.Page, **params) -> ft.Control:
         for picked_file in files[:available_slots]:
             file_name = getattr(picked_file, "name", None) or "photo"
             suffix = Path(file_name).suffix.lower()
-
             if suffix not in (".jpg", ".jpeg", ".png", ".webp"):
                 show_error(f"{file_name} is not supported. Use JPG, PNG, or WEBP.")
                 continue
@@ -517,36 +627,24 @@ def view(page: ft.Page, **params) -> ft.Control:
             try:
                 raw_bytes = getattr(picked_file, "bytes", None)
                 path_value = getattr(picked_file, "path", None)
-                local_path = None
-
                 if raw_bytes:
                     photo_bytes = bytes(raw_bytes)
-                    size = len(photo_bytes)
                 elif path_value:
-                    local_path = Path(path_value)
-                    if not local_path.is_file():
-                        show_error(f"Could not access {file_name}. Please choose it again.")
-                        continue
-                    size = local_path.stat().st_size
-                    photo_bytes = None
+                    with open(path_value, "rb") as image_file:
+                        photo_bytes = image_file.read()
                 else:
-                    show_error(
-                        f"Could not read {file_name}. Please try selecting the image again."
-                    )
+                    show_error(f"Could not read {file_name}. Please choose it again.")
                     continue
 
-                if size > MAX_PHOTO_BYTES:
-                    show_error(
-                        f"{file_name} exceeds the 1.5 MB photo limit. "
-                        "Please select a smaller image."
-                    )
+                if len(photo_bytes) > MAX_PHOTO_BYTES:
+                    show_error(f"{file_name} exceeds the 1.5 MB photo limit. Choose a smaller image.")
                     continue
 
                 selected_photos.append({
-                    "path": str(local_path) if local_path else None,
+                    "path": None,
                     "bytes": photo_bytes,
                     "name": file_name,
-                    "size": size,
+                    "size": len(photo_bytes),
                 })
                 added += 1
             except (OSError, TypeError, ValueError):
@@ -563,14 +661,11 @@ def view(page: ft.Page, **params) -> ft.Control:
 
     async def choose_photos(e=None):
         remaining = MAX_PHOTOS - len(selected_photos)
-
         if remaining <= 0:
             show_error("You can attach a maximum of 3 photos.")
             page.update()
             return
-
         clear_error()
-
         try:
             await file_picker.pick_files(
                 dialog_title="Choose issue photos",
@@ -578,24 +673,28 @@ def view(page: ft.Page, **params) -> ft.Control:
                 file_type=ft.FilePickerFileType.IMAGE,
                 with_data=True,
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("Photo picker failed")
-            show_error(
-                "Unable to open the photo picker. "
-                "Check your device permissions and try again."
-            )
+            show_error(f"Unable to open the photo picker. Details: {exc}")
             page.update()
 
     take_photo_button = ft.Button(
-        "Add photos",
-        icon=ft.Icons.ADD_A_PHOTO,
+        "Take photo",
+        icon=ft.Icons.CAMERA_ALT,
+        on_click=open_camera,
+        bgcolor=ft.Colors.DEEP_PURPLE_600,
+        color=ft.Colors.WHITE,
+    )
+    choose_gallery_button = ft.Button(
+        "Choose from gallery",
+        icon=ft.Icons.PHOTO_LIBRARY_OUTLINED,
         on_click=choose_photos,
         bgcolor=ft.Colors.DEEP_PURPLE_50,
         color=ft.Colors.DEEP_PURPLE_700,
     )
 
     # ---------------------------------------------------------
-    # Location
+    # Location: actual flet-geolocator API
     # ---------------------------------------------------------
 
     location_status = ft.Text(
@@ -611,21 +710,71 @@ def view(page: ft.Page, **params) -> ft.Control:
         bgcolor=ft.Colors.AMBER_100,
         content=ft.Row(
             [
-                ft.Icon(
-                    ft.Icons.WARNING_AMBER,
-                    color=ft.Colors.AMBER_900,
-                    size=18,
-                ),
-                ft.Text(
-                    "",
-                    size=12,
-                    color=ft.Colors.AMBER_900,
-                    expand=True,
-                ),
+                ft.Icon(ft.Icons.WARNING_AMBER, color=ft.Colors.AMBER_900, size=18),
+                ft.Text("", size=12, color=ft.Colors.AMBER_900, expand=True),
             ],
             spacing=8,
         ),
     )
+
+    geolocator = Geolocator()
+    # Geolocator is a Flet service/control and should be registered with the page.
+    try:
+        page.services.append(geolocator)
+    except Exception:
+        logger.debug("Geolocator service could not be registered", exc_info=True)
+
+    async def _auto_match_building(latitude, longitude):
+        """Try existing optional building-match services; never block manual selection."""
+        for module_name in (
+            "services.issue_service",
+            "services.issues",
+            "services.issue",
+            "services.building_service",
+            "services.buildings",
+        ):
+            try:
+                module = importlib.import_module(module_name)
+                matcher = getattr(module, "match_building", None)
+                if not callable(matcher):
+                    continue
+                try:
+                    signature = inspect.signature(matcher)
+                    positional = [
+                        p for p in signature.parameters.values()
+                        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+                    ]
+                except (TypeError, ValueError):
+                    positional = []
+
+                if len(positional) >= 2:
+                    match_result = matcher(latitude, longitude)
+                else:
+                    match_result = matcher({"latitude": latitude, "longitude": longitude})
+                match_result = await _resolve(match_result)
+
+                if isinstance(match_result, dict):
+                    match_name = (
+                        match_result.get("name")
+                        or match_result.get("building")
+                        or match_result.get("building_name")
+                    )
+                elif isinstance(match_result, str):
+                    match_name = match_result
+                else:
+                    match_name = None
+
+                if match_name:
+                    match_name = str(match_name)
+                    existing = {getattr(option, "key", None) for option in building_dropdown.options}
+                    if match_name not in existing:
+                        building_dropdown.options.append(ft.dropdown.Option(match_name, text=match_name))
+                    building_dropdown.value = match_name
+                    building_note.value = f"Building detected automatically: {match_name}. You can change it."
+                    return True
+            except Exception:
+                logger.debug("Automatic building matching failed via %s", module_name, exc_info=True)
+        return False
 
     async def get_location(e=None):
         clear_error()
@@ -634,50 +783,58 @@ def view(page: ft.Page, **params) -> ft.Control:
         page.update()
 
         try:
-            # Flet does not provide a universal geolocation API
-            # across all desktop, web, and mobile configurations.
-            #
-            # If flet_geolocator is installed, use it. Otherwise
-            # show an actionable error without inventing coordinates.
-            try:
-                geolocator_module = importlib.import_module(
-                    "flet_geolocator"
-                )
-            except ImportError:
+            permission_status = await _resolve(geolocator.request_permission())
+            permission_name = getattr(permission_status, "name", str(permission_status)).lower()
+            if "denied" in permission_name or "unable" in permission_name:
                 raise RuntimeError(
-                    "Location support is not available in this "
-                    "installation. Connect your existing GPS/geolocation "
-                    "implementation to this button."
+                    "Location permission was denied. Enable location permission for CampusCare "
+                    "in Android Settings, or select your building manually."
                 )
 
-            geolocator_class = getattr(
-                geolocator_module,
-                "Geolocator",
-                None,
+            service_enabled = await _resolve(geolocator.is_location_service_enabled())
+            if not service_enabled:
+                raise RuntimeError("Location/GPS is turned off. Enable it and try again.")
+
+            location_status.value = "Getting your current GPS position..."
+            page.update()
+            position = await _resolve(geolocator.get_current_position())
+            latitude = getattr(position, "latitude", None)
+            longitude = getattr(position, "longitude", None)
+            accuracy = getattr(position, "accuracy", None)
+
+            if latitude is None or longitude is None:
+                raise RuntimeError("The GPS service did not return valid coordinates.")
+
+            current_location["latitude"] = float(latitude)
+            current_location["longitude"] = float(longitude)
+            current_location["accuracy"] = float(accuracy) if accuracy is not None else None
+
+            accuracy_text = (
+                f" ±{float(accuracy):.1f} m accuracy"
+                if accuracy is not None
+                else " accuracy unavailable"
             )
-
-            if geolocator_class is None:
-                raise RuntimeError(
-                    "The installed geolocation package has an "
-                    "unsupported API. Please check its version."
-                )
-
             location_status.value = (
-                "Geolocation package found, but its API must be "
-                "connected to this app's installed version."
+                f"Latitude: {float(latitude):.6f}\n"
+                f"Longitude: {float(longitude):.6f}{accuracy_text}"
             )
 
-            # Deliberately do not report fake coordinates.
-            # The exact plugin API must be verified against the
-            # package version used by the project.
+            if accuracy is not None and float(accuracy) > 30:
+                location_warning.visible = True
+                location_warning.content.controls[1].value = (
+                    f"GPS accuracy is about {float(accuracy):.0f} m. "
+                    "Try again outdoors for a more precise location."
+                )
 
+            matched = await _auto_match_building(float(latitude), float(longitude))
+            if not matched:
+                building_note.value = "Location fetched. Choose your building manually if needed."
+
+            clear_error()
         except Exception as exc:
-            location_status.value = (
-                "Location unavailable. You can still select a building "
-                "manually."
-            )
+            logger.exception("Could not get current location")
+            location_status.value = "Location unavailable. You can still select a building manually."
             show_error(str(exc))
-
         page.update()
 
     location_button = ft.Button(
@@ -1135,7 +1292,12 @@ def view(page: ft.Page, **params) -> ft.Control:
                 ft.Icons.CAMERA_ALT_OUTLINED,
                 "Photos",
                 "A clear photo helps the maintenance team understand the issue.",
-                [take_photo_button, camera_status, photo_strip],
+                [
+                    ft.Row([take_photo_button, choose_gallery_button], wrap=True, spacing=8),
+                    camera_status,
+                    camera_preview_container,
+                    photo_strip,
+                ],
             ),
             section_card(
                 ft.Icons.MY_LOCATION,
