@@ -49,12 +49,14 @@ import asyncio
 import base64
 import importlib
 import inspect
+import io
 import json
 import logging
 import uuid
 from pathlib import Path
 
 import flet as ft
+from PIL import Image
 from flet_camera import Camera, ResolutionPreset
 from flet_geolocator import Geolocator
 
@@ -471,8 +473,38 @@ def view(page: ft.Page, **params) -> ft.Control:
             update_photo_ui()
             validate_form()
 
+    def _compress_photo(photo_bytes, name):
+        """Normalize images to JPEG and compress them for mobile uploads."""
+        if not photo_bytes:
+            raise ValueError("The image is empty.")
+
+        try:
+            with Image.open(io.BytesIO(photo_bytes)) as source:
+                source.load()
+                image = source.convert("RGB")
+                image.thumbnail((1600, 1600))
+                quality = 85
+                output = io.BytesIO()
+                image.save(output, format="JPEG", quality=quality, optimize=True)
+                while output.tell() > MAX_PHOTO_BYTES and quality > 40:
+                    quality -= 10
+                    output = io.BytesIO()
+                    image.save(output, format="JPEG", quality=quality, optimize=True)
+                while output.tell() > MAX_PHOTO_BYTES and max(image.size) > 640:
+                    image.thumbnail((int(image.width * 0.8), int(image.height * 0.8)))
+                    output = io.BytesIO()
+                    image.save(output, format="JPEG", quality=70, optimize=True)
+                compressed = output.getvalue()
+        except Exception as exc:
+            raise ValueError(f"Could not read/compress this image: {exc}") from exc
+
+        if len(compressed) > MAX_PHOTO_BYTES:
+            raise ValueError("The photo could not be compressed below 1.5 MB.")
+        base_name = Path(name).stem or "campuscare_photo"
+        return compressed, f"{base_name}.jpg"
+
     def _add_photo_bytes(photo_bytes, name):
-        """Add in-memory image bytes, enforcing count and size limits."""
+        """Compress and add in-memory image bytes, enforcing count limits."""
         if len(selected_photos) >= MAX_PHOTOS:
             show_error("You can attach a maximum of 3 photos.")
             page.update()
@@ -481,11 +513,10 @@ def view(page: ft.Page, **params) -> ft.Control:
             show_error("The camera did not return an image. Please try again.")
             page.update()
             return False
-        if len(photo_bytes) > MAX_PHOTO_BYTES:
-            show_error(
-                f"{name} is larger than 1.5 MB. Please use a lower camera resolution "
-                "or choose a smaller image."
-            )
+        try:
+            photo_bytes, name = _compress_photo(bytes(photo_bytes), name)
+        except Exception as exc:
+            show_error(f"Could not prepare {name} for upload: {exc}")
             page.update()
             return False
 
@@ -598,12 +629,28 @@ def view(page: ft.Page, **params) -> ft.Control:
             camera_preview_container.content = None
             camera_control = None
             camera_status.value = "Camera unavailable. You can choose an existing photo instead."
-            show_error(
-                "Unable to open the camera. If you're using the APK, allow camera access "
-                "in Android Settings and try again. "
-                f"Details: {exc}"
+            error_text = str(exc)
+            permission_problem = any(
+                word in error_text.lower()
+                for word in ("permission", "denied", "cameraaccess")
             )
-            page.update()
+            if permission_problem:
+                show_error(
+                    "Android did not grant camera access. Opening CampusCare app settings; "
+                    "enable Camera permission, return to the app, and tap Take photo again. "
+                    f"Details: {exc}"
+                )
+                page.update()
+                try:
+                    await _resolve(geolocator.open_app_settings())
+                except Exception:
+                    logger.exception("Could not open app settings for camera permission")
+            else:
+                show_error(
+                    "Unable to open the camera. You can still choose a photo from the gallery. "
+                    f"Details: {exc}"
+                )
+                page.update()
 
     async def handle_file_picker_result(e):
         files = getattr(e, "files", None) or []
@@ -636,14 +683,16 @@ def view(page: ft.Page, **params) -> ft.Control:
                     show_error(f"Could not read {file_name}. Please choose it again.")
                     continue
 
-                if len(photo_bytes) > MAX_PHOTO_BYTES:
-                    show_error(f"{file_name} exceeds the 1.5 MB photo limit. Choose a smaller image.")
+                try:
+                    photo_bytes, compressed_name = _compress_photo(photo_bytes, file_name)
+                except Exception as exc:
+                    show_error(f"Could not prepare {file_name} for upload: {exc}")
                     continue
 
                 selected_photos.append({
                     "path": None,
                     "bytes": photo_bytes,
-                    "name": file_name,
+                    "name": compressed_name,
                     "size": len(photo_bytes),
                 })
                 added += 1
@@ -785,15 +834,30 @@ def view(page: ft.Page, **params) -> ft.Control:
         try:
             permission_status = await _resolve(geolocator.request_permission())
             permission_name = getattr(permission_status, "name", str(permission_status)).lower()
+            if "deniedforever" in permission_name or "denied_forever" in permission_name:
+                location_status.value = "Location permission is blocked in Android settings."
+                page.update()
+                await _resolve(geolocator.open_app_settings())
+                return
             if "denied" in permission_name or "unable" in permission_name:
-                raise RuntimeError(
-                    "Location permission was denied. Enable location permission for CampusCare "
-                    "in Android Settings, or select your building manually."
+                location_status.value = "Location permission was not granted. Tap again to retry."
+                show_error(
+                    "Please allow location access when Android asks. If you previously blocked it, "
+                    "open Android Settings > Apps > CampusCare > Permissions > Location."
                 )
+                page.update()
+                return
 
             service_enabled = await _resolve(geolocator.is_location_service_enabled())
             if not service_enabled:
-                raise RuntimeError("Location/GPS is turned off. Enable it and try again.")
+                location_status.value = "GPS is off. Turn on Location, then return here."
+                show_error("Android will open Location settings. Turn Location on, return to CampusCare, and tap Use my location again.")
+                page.update()
+                try:
+                    await _resolve(geolocator.open_location_settings())
+                except Exception:
+                    logger.exception("Could not open Android Location settings")
+                return
 
             location_status.value = "Getting your current GPS position..."
             page.update()
