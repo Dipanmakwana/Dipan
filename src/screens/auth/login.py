@@ -10,7 +10,7 @@ UI TODO
 Behaviour TODO
 [ ] Validate with validators (create core/validators.py when needed) before calling the API
 [ ] auth_service.login(email, password) -> {access, refresh, user{name,email,role}}
-[ ] session.set_session(...) then reset(page, home_path())   (role decides student vs staff home)
+[=] session.set_session(...) then reset(page, home_path())   (role decides home: student -> /home, staff -> /admin)
 [ ] Unverified email -> go(page, "/signup", step="otp", email=...)
 [ ] Network error vs wrong password must show different messages
 """
@@ -196,14 +196,16 @@ def view(page: ft.Page, **params) -> ft.Control:
       page.update()
   email_field.on_change = on_email_change
   password_field.on_change = on_password_change
-  def dev_skip(e) -> None:
+  def dev_skip(role: str) -> None:
+      """DEV_MODE only: log in without the server as a student or staff (PHO admin) user."""
+      is_staff = role in config.STAFF_ROLES
       session.set_session(
           "dev",
           "dev",
           {
-              "name": "Dev Student",
-              "email": f"dev@{_allowed_domain() or 'example.edu'}",
-              "role": config.ROLE_STUDENT,
+              "name": "Dev Admin" if is_staff else "Dev Student",
+              "email": f"{'admin' if is_staff else 'dev'}@{_allowed_domain() or 'example.edu'}",
+              "role": role,
           },
       )
       reset(page, home_path())
@@ -301,8 +303,7 @@ def view(page: ft.Page, **params) -> ft.Control:
               show_error("The server response is missing account information. Please try again.")
               return
           session.set_session(str(access), str(refresh), user)
-          # The current router has a single home route; role-specific homes can be
-          # substituted here when the staff routes are registered.
+          # home_path() is role-aware: staff -> /admin (PHO side), students -> /home.
           reset(page, home_path())
       except Exception as exc:
         kind, message = _exception_details(exc)
@@ -479,6 +480,23 @@ def view(page: ft.Page, **params) -> ft.Control:
                   alignment=ft.MainAxisAlignment.CENTER,
                   vertical_alignment=ft.CrossAxisAlignment.CENTER,
                   spacing=3,
+              ),
+              ft.Row(
+                  [
+                      ft.TextButton(
+                          "Skip as student",
+                          on_click=lambda e: dev_skip(config.ROLE_STUDENT),
+                          style=ft.ButtonStyle(color=MUTED),
+                      ),
+                      ft.TextButton(
+                          "Skip as admin",
+                          on_click=lambda e: dev_skip(config.ROLE_ADMIN),
+                          style=ft.ButtonStyle(color=MUTED),
+                      ),
+                  ],
+                  alignment=ft.MainAxisAlignment.CENTER,
+                  spacing=4,
+                  visible=config.DEV_MODE,
               ),
               ft.Divider(height=1, color=BORDER),
               ft.Row(

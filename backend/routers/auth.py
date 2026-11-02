@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from config import settings
 from schemas.auth import (
@@ -8,6 +8,7 @@ from schemas.auth import (
     SignupRequest,
     VerifyOTPRequest,
 )
+from dependencies import get_current_user
 from supabase_client import get_supabase_client
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -22,19 +23,80 @@ def validate_institute_email(email: str):
         )
 
 
+def load_profile(user_id: str) -> dict:
+    """Role + campus details from public.profiles (the source of truth, NOT user_metadata).
+
+    Uses a fresh service-role client, so it works right after sign-in and is not
+    affected by RLS. Returns {} if the profile row is missing.
+    """
+    client = get_supabase_client()
+    try:
+        rows = (
+            client.table("profiles")
+            .select("full_name, roll_number, building_id, role")
+            .eq("id", str(user_id))
+            .limit(1)
+            .execute()
+        ).data or []
+    except Exception:
+        return {}
+    if not rows:
+        return {}
+
+    profile = rows[0]
+    profile["building_name"] = None
+    if profile.get("building_id"):
+        try:
+            building = (
+                client.table("buildings")
+                .select("name")
+                .eq("id", profile["building_id"])
+                .limit(1)
+                .execute()
+            ).data or []
+            profile["building_name"] = building[0]["name"] if building else None
+        except Exception:
+            pass
+    return profile
+
+
+def user_payload(user_id, email, metadata: dict | None) -> dict:
+    """User object returned to the app. role/profile come from public.profiles."""
+    metadata = metadata or {}
+    profile = load_profile(user_id)
+    return {
+        "id": str(user_id),
+        "email": email,
+        "user_metadata": metadata,
+        "role": profile.get("role") or "student",
+        "full_name": profile.get("full_name") or metadata.get("full_name", ""),
+        "roll_number": profile.get("roll_number") or metadata.get("roll_number"),
+        "building_id": profile.get("building_id") or metadata.get("building_id"),
+        "building_name": profile.get("building_name"),
+    }
+
+
 def session_response(session, user):
     return {
         "success": True,
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "user_metadata": user.user_metadata or {},
-        },
+        "user": user_payload(user.id, user.email, user.user_metadata),
         "access_token": session.access_token,
         "refresh_token": session.refresh_token,
         "token_type": session.token_type,
         "expires_in": session.expires_in,
     }
+
+
+@router.get("/buildings")
+def public_buildings():
+    """Building list for the signup screen (no login needed; buildings are public)."""
+    try:
+        rows = (
+            get_supabase_client().table("buildings").select("id, name, zone").order("name").execute()
+        ).data or []
+    except Exception:
+        raise HTTPException(status_code=500, detail="Unable to load buildings. Please try again.")
+    return {"success": True, "buildings": rows}
 
 
 @router.post("/signup")
@@ -141,6 +203,15 @@ def login(payload: LoginRequest):
             status_code=401,
             detail="Invalid email or password. Your account may not exist.",
         )
+
+
+@router.get("/me")
+def me(user: dict = Depends(get_current_user)):
+    """Profile of the logged-in user (used by the app's Profile screen)."""
+    return {
+        "success": True,
+        "user": user_payload(user["id"], user["email"], user.get("metadata")),
+    }
 
 
 @router.get("/verified", response_class=HTMLResponse)

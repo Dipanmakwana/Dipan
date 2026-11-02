@@ -1,6 +1,7 @@
 
 from fastapi import FastAPI
 
+from routers.admin import router as admin_router
 from routers.auth import router as auth_router
 from routers.issues import router as issues_router
 
@@ -11,6 +12,7 @@ app = FastAPI(
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(issues_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")   # PHO/admin endpoints (TODO, see routers/admin.py)
 
 
 @app.get("/api/health")

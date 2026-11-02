@@ -2,6 +2,7 @@
 
 TODO
   [ ] build_status_chip(status: str) -> ft.Control
-  [ ] Map statuses to label + colour: reported, assigned, acknowledged, in_progress, resolved, closed, reopened
+  [ ] Map statuses to label + colour: open, assigned, in_progress, resolved, closed, rejected
+        (same set as ALLOWED_TRANSITIONS in backend/routers/admin.py)
   [ ] Keep the status names identical to the backend's status values
 """

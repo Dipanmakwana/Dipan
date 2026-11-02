@@ -2,7 +2,7 @@
 
 UI TODO
   [=] Avatar circle with initials
-  [=] Name, institute email, roll number, hostel/building (read-only to start)
+  [x] Name, institute email, roll number, hostel/building (read-only; loaded from GET /auth/me)
   [=] Role badge (Student / Staff)
   [ ] (later) Edit profile (name, hostel) and Change password
   [ ] (later) Notification preferences switch
@@ -16,7 +16,8 @@ Behaviour TODO
 
 """PROFILE | shared screen | route: /profile | navbar tab 4
 
-Displays read-only account information from the in-memory session.
+Displays read-only account information: the session copy first, then the latest
+profile from GET /auth/me (see view()).
 Profile editing, password changes, notification preferences, persistent token
 removal, and server-side logout can be added when their services are available.
 """
@@ -25,8 +26,10 @@ import inspect
 
 import flet as ft
 
+import config
+
 from core import session
-from core.router import reset
+from core.router import current_path, go, reset
 from services import auth_service
 
 # Keep these colours aligned with the authentication screens.
@@ -98,7 +101,21 @@ def _separator() -> ft.Control:
     return ft.Container(height=1, bgcolor=BORDER)
 
 
-def view(page: ft.Page, **params) -> ft.Control:
+def view(page: ft.Page, fresh: bool = False, **params) -> ft.Control:
+    # Show the session copy immediately, then fetch the latest profile from the
+    # server (GET /auth/me) and re-render once with fresh=True.
+    if not fresh and session.is_logged_in() and not session.is_dev_session():
+        async def refresh_profile() -> None:
+            try:
+                session.update_user(await auth_service.me())
+            except Exception as exc:
+                print("Could not refresh profile:", exc)
+                return
+            if current_path() == "/profile":     # user may have switched tabs meanwhile
+                go(page, "/profile", replace=True, fresh=True)
+
+        page.run_task(refresh_profile)
+
     user = session.user() or {}
     metadata = user.get("user_metadata") or user.get("metadata") or {}
 
@@ -128,7 +145,7 @@ def view(page: ft.Page, **params) -> ft.Control:
     )
 
     raw_role = str(user.get("role") or metadata.get("role") or "student").strip().lower()
-    is_staff = raw_role in {"staff", "admin", "maintenance", "support"}
+    is_staff = session.is_staff() or raw_role in config.STAFF_ROLES
     role_label = "Staff" if is_staff else "Student"
     role_bg = "#F0ECFF" if is_staff else "#EAF7F0"
     role_color = PURPLE_DARK if is_staff else "#23764B"

@@ -1,4 +1,4 @@
-"""ISSUE DETAIL  |  side: shared (student view now, staff view later)  |  route: /issue  |  navbar: hidden
+"""ISSUE DETAIL  |  side: student (staff use /admin/complaint)  |  route: /issue  |  navbar: hidden
 Param: id (issue id), e.g. go(page, "/issue", id=42). Shows a back button instead of the navbar.
 
 UI TODO
@@ -16,9 +16,8 @@ UI TODO
         - Resolved: Button "Reopen" (reason required)
   [ ] Loading + error/retry states
 
-Staff TODO (later, same file, branch on session.role())
-  [ ] Buttons: Acknowledge / Start work / Resolve (+ resolution photo and note) / Reassign (+ reason)
-  [ ] Which buttons to show must come from the backend's allowed-transitions list, not hard-coded rules
+Staff: NOT handled here. The PHO/admin view (status change, assign worker, notes) is
+screens/admin/complaint_detail.py (route /admin/complaint). This screen stays student-only.
 
 Data TODO
   [ ] issue_service.get_issue(id), add_comment(id, text), submit_feedback(id, rating, text), reopen(id, reason)

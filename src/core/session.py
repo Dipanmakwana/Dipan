@@ -13,6 +13,8 @@ TODO (auth owner):
   - clear(): remove stored values and blacklist the refresh token on the server.
 """
 
+import config
+
 _state = {"access": None, "refresh": None, "user": None}
 
 
@@ -23,6 +25,17 @@ async def restore(page) -> None:
 
 def set_session(access: str, refresh: str, user: dict) -> None:
     _state.update(access=access, refresh=refresh, user=user)
+
+
+def update_user(fields: dict) -> None:
+    """Merge fresh profile fields (e.g. from GET /auth/me) into the logged-in user."""
+    if _state["user"] is not None:
+        _state["user"] = {**_state["user"], **{k: v for k, v in fields.items() if v is not None}}
+
+
+def is_dev_session() -> bool:
+    """True for the DEV_MODE "Skip as ..." login (fake token, the API will reject it)."""
+    return _state["access"] == "dev"
 
 
 def clear() -> None:
@@ -47,3 +60,8 @@ def user() -> dict:
 
 def role():
     return user().get("role")
+
+
+def is_staff() -> bool:
+    """True for PHO/admin users (see config.STAFF_ROLES)."""
+    return str(role() or "").strip().lower() in config.STAFF_ROLES

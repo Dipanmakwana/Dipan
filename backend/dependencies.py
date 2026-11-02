@@ -46,3 +46,17 @@ def get_user_supabase(
     supabase = get_supabase_client()
     supabase.postgrest.auth(user["token"])
     return supabase
+
+
+STAFF_ROLES = {"pho_admin"}
+
+
+def require_staff(user: dict = Depends(get_current_user)) -> dict:
+    """Allow only PHO admins. Role comes from public.profiles (never user_metadata)."""
+    from routers.auth import load_profile  # local import avoids a circular import
+
+    role = (load_profile(user["id"]) or {}).get("role")
+    if role not in STAFF_ROLES:
+        raise HTTPException(status_code=403, detail="Only PHO admins can do this.")
+    user["role"] = role
+    return user

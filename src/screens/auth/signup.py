@@ -353,6 +353,35 @@ def view(page: ft.Page, step: str = "form", email: str = "", **params) -> ft.Con
             content_padding=ft.Padding.symmetric(horizontal=15, vertical=14),
             on_select=lambda e: clear_message(),
         )
+        building_hint = ft.Text(
+            "Loading campus buildings...",
+            size=10,
+            color=MUTED,
+            width=inner_width,
+            visible=not building_options,
+        )
+
+        async def load_buildings() -> None:
+            """Fill the dropdown from GET /auth/buildings (public, no login needed)."""
+            try:
+                rows = await auth_service.list_public_buildings()
+            except Exception as exc:
+                print("Could not load buildings:", exc)
+                building_hint.value = "Couldn't load buildings. You can add it later."
+                page.update()
+                return
+            building_field.options = [
+                ft.DropdownOption(key=str(row["id"]), text=str(row.get("name") or row["id"]))
+                for row in rows
+                if row.get("id")
+            ]
+            building_field.disabled = not building_field.options
+            building_hint.visible = not building_field.options
+            building_hint.value = "No buildings found."
+            page.update()
+
+        if not building_options:
+            page.run_task(load_buildings)
 
         async def on_signup(e) -> None:
             print("Signup button clicked")
@@ -489,15 +518,7 @@ def view(page: ft.Page, step: str = "form", email: str = "", **params) -> ft.Con
             roll_field,
             building_field,
         ]
-        if not building_options:
-            form_controls.append(
-                ft.Text(
-                    "Building choices will appear when the campus directory is connected.",
-                    size=10,
-                    color=MUTED,
-                    width=inner_width,
-                )
-            )
+        form_controls.append(building_hint)
         form_controls.extend(
             [
                 password_field,

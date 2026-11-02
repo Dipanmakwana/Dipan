@@ -31,46 +31,11 @@ logger = logging.getLogger(__name__)
 FILTERS = [
     "All",
     "Open",
+    "Assigned",
     "In progress",
     "Resolved",
     "Closed",
 ]
-
-# Temporary fallback data used only when no compatible backend
-# service is available.
-SAMPLE_ISSUES = [
-    {
-        "id": 1,
-        "category": "civil",
-        "title": "Pothole near the main gate",
-        "description": "There is a large pothole near the main entrance.",
-        "building": "Main Gate",
-        "status": "Open",
-        "created_at": datetime.now(timezone.utc) - timedelta(hours=3),
-        "overdue": False,
-    },
-    {
-        "id": 2,
-        "category": "electrical",
-        "title": "Broken corridor light",
-        "description": "The light outside the second-floor classroom is not working.",
-        "building": "Academic Building",
-        "status": "In progress",
-        "created_at": datetime.now(timezone.utc) - timedelta(days=2),
-        "overdue": True,
-    },
-    {
-        "id": 3,
-        "category": "plumbing",
-        "title": "Water leakage",
-        "description": "Water is leaking from a pipe near the washroom.",
-        "building": "Hostel Building",
-        "status": "Resolved",
-        "created_at": datetime.now(timezone.utc) - timedelta(days=5),
-        "overdue": False,
-    },
-]
-
 
 CATEGORY_ICONS = {
     "plumbing": ft.Icons.WATER_DROP,
@@ -94,9 +59,11 @@ TEXT_SECONDARY = "#746D80"
 
 STATUS_COLORS = {
     "open": PURPLE,
+    "assigned": "#2D6CDF",
     "in progress": "#A66A00",
     "resolved": "#27834A",
     "closed": "#77717F",
+    "rejected": "#B4234D",
 }
 
 
@@ -189,14 +156,13 @@ async def _await_if_needed(value):
 async def _fetch_issues(status):
     """Load issues from the available backend.
 
-    If the service is not implemented, sample data is used.
-    Backend failures are allowed to propagate so the UI can
-    display an error and retry action.
+    Data always comes from the backend (issue_service.list_my_issues).
+    Failures propagate so the UI can display an error and retry action.
     """
     service = _find_list_service()
 
     if service is None:
-        return [dict(issue) for issue in SAMPLE_ISSUES]
+        raise RuntimeError("Issue service is not available (issue_service.list_my_issues).")
 
     if status == "All":
         result = await _await_if_needed(service(status=None))

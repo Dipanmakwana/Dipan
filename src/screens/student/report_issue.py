@@ -1162,6 +1162,7 @@ def view(page: ft.Page, **params) -> ft.Control:
             "category": category,
             "description": description,
             "building": building,
+            "building_id": building_ids.get(building),
             "room": room or None,
             "location": (
                 {
@@ -1174,6 +1175,15 @@ def view(page: ft.Page, **params) -> ft.Control:
             ),
             "idempotency_key": idempotency_key,
         }
+
+        # The backend takes photos in the same POST /issues request when the
+        # service has no separate upload_photo(); send them with the payload.
+        if not callable(upload_function):
+            payload["photos"] = [
+                {"name": photo["name"], "bytes": photo["bytes"]}
+                for photo in selected_photos
+                if photo.get("bytes") is not None
+            ]
 
         try:
             # Step 1: Create the report.
@@ -1198,8 +1208,8 @@ def view(page: ft.Page, **params) -> ft.Control:
                     "The backend did not return an issue ID."
                 )
 
-            # Step 2: Upload photos individually.
-            if selected_photos:
+            # Step 2: Upload photos individually (only if the service uploads separately).
+            if selected_photos and callable(upload_function):
                 if not callable(upload_function):
                     raise RuntimeError(
                         f"Report #{issue_id} was created, but photo "
@@ -1394,6 +1404,37 @@ def view(page: ft.Page, **params) -> ft.Control:
     # Register FilePicker as a page service for Flet versions
     # that require controls to be added to the page.
     page.services.append(file_picker)
+
+    building_ids = {}   # building name (dropdown key) -> buildings.id
+
+    async def load_buildings():
+        """Fill the building dropdown from the backend (GET /issues/buildings)."""
+        try:
+            from services import issue_service
+
+            rows = await issue_service.list_buildings()
+        except Exception as exc:
+            logger.exception("Could not load buildings")
+            building_note.value = f"Could not load buildings: {exc}"
+            building_note.visible = True
+            page.update()
+            return
+
+        building_ids.update({str(row["name"]): str(row["id"]) for row in rows if row.get("name") and row.get("id")})
+        names = [str(row.get("name")) for row in rows if row.get("name")]
+        existing = {getattr(option, "key", None) for option in building_dropdown.options}
+        for name in names:
+            if name not in existing:
+                building_dropdown.options.append(
+                    ft.dropdown.Option(
+                        name,
+                        text=name,
+                        style=ft.TextStyle(color=ft.Colors.GREY_900),
+                    )
+                )
+        page.update()
+
+    page.run_task(load_buildings)
 
     # Responsive outer layout: fill the available app area on phones and
     # laptops, while keeping the form comfortably readable on wide screens.

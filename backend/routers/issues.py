@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/issues", tags=["Issues"])
 
-VALID_STATUSES = {"open", "in_progress", "resolved", "closed"}
+# Keep in sync with issues_status_check (backend/migrations/001_admin_side.sql).
+VALID_STATUSES = {"open", "assigned", "in_progress", "resolved", "closed", "rejected"}
 
 PHOTO_BUCKET = os.environ.get("ISSUE_PHOTO_BUCKET", "issue-photos")
 MAX_PHOTOS = 3
@@ -150,6 +151,7 @@ def get_buildings(
 def create_issue(
     category: str = Form(...),
     description: str = Form(...),
+    building_id: str | None = Form(default=None),
     room: str | None = Form(default=None),
     latitude: float | None = Form(default=None),
     longitude: float | None = Form(default=None),
@@ -163,6 +165,7 @@ def create_issue(
         payload = CreateIssueRequest(
             category=category,
             description=description,
+            building_id=building_id or None,
             room=room or None,
             latitude=latitude,
             longitude=longitude,
@@ -176,6 +179,21 @@ def create_issue(
                 {"loc": ["body", *e["loc"]], "msg": e["msg"]} for e in exc.errors()
             ],
         )
+
+    # 1b. Resolve the building: unknown ids are rejected; the name is also kept in
+    #     location_text so lists can show it without a join.
+    if payload.building_id:
+        try:
+            rows = (
+                supabase.table("buildings").select("id, name")
+                .eq("id", payload.building_id).limit(1).execute()
+            ).data or []
+        except Exception:
+            rows = []
+        if not rows:
+            raise HTTPException(status_code=422, detail="Unknown building.")
+        if not payload.location_text:
+            payload.location_text = rows[0]["name"]
 
     # 2. Validate photos, then upload them to Supabase Storage.
     prepared = _prepare_photos(photos)
