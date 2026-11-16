@@ -4,6 +4,7 @@ from fastapi.responses import HTMLResponse
 from config import settings
 from schemas.auth import (
     LoginRequest,
+    RefreshRequest,
     ResendOTPRequest,
     SignupRequest,
     VerifyOTPRequest,
@@ -203,6 +204,22 @@ def login(payload: LoginRequest):
             status_code=401,
             detail="Invalid email or password. Your account may not exist.",
         )
+
+
+@router.post("/refresh")
+def refresh(payload: RefreshRequest):
+    """Exchange a refresh token for a new session (keeps the app logged in across restarts).
+
+    Supabase rotates refresh tokens: the app must store the new refresh_token from the response.
+    """
+    supabase = get_supabase_client()
+    try:
+        response = supabase.auth.refresh_session(payload.refresh_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Your session has expired. Please log in again.")
+    if not response.session or not response.user:
+        raise HTTPException(status_code=401, detail="Your session has expired. Please log in again.")
+    return session_response(response.session, response.user)
 
 
 @router.get("/me")
