@@ -1,0 +1,5 @@
+flet
+flet-geolocator
+flet-camera
+httpx
+pillow

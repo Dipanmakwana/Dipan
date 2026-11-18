@@ -1,0 +1,7 @@
+assets
+components
+config
+core
+main
+screens
+services

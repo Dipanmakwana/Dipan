@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: campuscare
+Version: 0.1.0
+Requires-Python: >=3.10
+Requires-Dist: flet
+Requires-Dist: flet-geolocator
+Requires-Dist: flet-camera
+Requires-Dist: httpx
+Requires-Dist: pillow
