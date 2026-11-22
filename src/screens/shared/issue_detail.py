@@ -1,19 +1,3 @@
-"""ISSUE DETAIL  |  side: student (staff use /admin/complaint)  |  route: /issue  |  navbar: hidden
-Param: id (issue id), e.g. go(page, "/issue", id=42). Shows a back button instead of the navbar.
-
-  - Header: category, status chip, priority badge, overdue badge, reported date, SLA due text
-  - "Is it fixed?" action card when the PHO marked it resolved:
-        Confirm & close (1-5 star rating + optional feedback)  |  Reopen (reason required)
-  - Progress stepper: Reported -> Assigned -> In progress -> Resolved -> Closed (or Rejected)
-  - Photos (tap to zoom), description, location (building, room, GPS -> open in maps)
-  - Assigned worker: name + call / SMS / WhatsApp
-  - Timeline of status events (actor = You / PHO office; admin internal notes are never sent)
-  - Comments: list + "Add a comment" (closed for closed / rejected issues)
-  - Your feedback (after closing)
-
-Staff: NOT handled here. The PHO/admin view is screens/admin/complaint_detail.py (/admin/complaint).
-Data: issue_service.get_issue, add_comment, confirm, reopen
-"""
 import flet as ft
 
 from components.issue_card import CATEGORY_ICONS
